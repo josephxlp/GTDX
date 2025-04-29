@@ -1,3 +1,8 @@
+*.aux.xml
+*.tif 
+*uvars.py 
+*.log 
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
