@@ -9,7 +9,9 @@ https://docs.google.com/document/d/1lq8ZlseA99eZe0Y3AeNxqE0ix5TNQf5WARBZ9YSHLAM/
 - topoxcale tml @ imrove at daug 
 - the other one [] seek and solve 
 
-[x] clean up the data to free up storage 
+------------------------------------------------
+[] do ROIs for ldem and pdem 
+[] the things below 
 
 
 - after lunch 

@@ -55,7 +55,7 @@ def fill_nodata(data, si=0):
     return fillnodata(data, mask=mask, max_search_distance=max_search_distance, smoothing_iterations=si)
 
 def riofill(fipath, fopath, si=0):
-    fopath = fopath.replace('.tif', f'_{str(si)}.tif')
+    #fopath = fopath.replace('.tif', f'_{str(si)}.tif')
     if os.path.isfile(fopath):
         print(f"already created {fopath}")
         return fopath

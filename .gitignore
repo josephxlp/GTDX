@@ -1,3 +1,4 @@
+*.tif 
 *uvars.py 
 *.log 
 
