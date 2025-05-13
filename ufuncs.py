@@ -6,8 +6,40 @@ import numpy as np
 
 gdal.UseExceptions()
 
+import os
+import glob
+import rasterio as rio
+from rasterio.merge import merge
+from typing import Optional, List
 
-def min_rasters(raster_a_path, raster_b_path, output_path):
+
+def mosaic(input_folder: Optional[str] = None, output_file: str = '', image_format: Optional[str] = 'tif', input_files: Optional[List[str]] = None, **kwargs):
+    if input_folder is None and input_files is None:
+        raise ValueError("Either input_folder or input_files must be provided.")
+    
+    if input_files is not None:
+        src_files_to_mosaic = [rio.open(f) for f in input_files]
+    else:
+        search_criteria = f"*.{image_format}"
+        q = os.path.join(input_folder, search_criteria)
+        input_files = sorted(glob.glob(q))
+        src_files_to_mosaic = [rio.open(f) for f in input_files]
+
+    mosaic_data, out_trans = merge(src_files_to_mosaic, **kwargs)
+
+    meta = src_files_to_mosaic[0].meta.copy()
+    meta.update({
+        "height": mosaic_data.shape[1],
+        "width": mosaic_data.shape[2],
+        "transform": out_trans,
+    })
+
+    with rio.open(output_file, 'w', **meta) as outds:
+        outds.write(mosaic_data)
+
+    return output_file
+
+def fmin_postprocessing(raster_a_path, raster_b_path, output_path):
     """
     Create a new raster where each pixel is the minimum of the corresponding pixels in two input rasters.
     Nodata values are treated as np.nan.
