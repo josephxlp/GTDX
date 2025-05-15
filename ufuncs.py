@@ -2,8 +2,108 @@ import os
 from osgeo import gdal, gdalconst
 import rasterio 
 import subprocess
+import numpy as np
 
 gdal.UseExceptions()
+
+import os
+import glob
+import rasterio as rio
+from rasterio.merge import merge
+from typing import Optional, List
+
+
+def mosaic(input_folder: Optional[str] = None, output_file: str = '', image_format: Optional[str] = 'tif', input_files: Optional[List[str]] = None, **kwargs):
+    if input_folder is None and input_files is None:
+        raise ValueError("Either input_folder or input_files must be provided.")
+    
+    if input_files is not None:
+        src_files_to_mosaic = [rio.open(f) for f in input_files]
+    else:
+        search_criteria = f"*.{image_format}"
+        q = os.path.join(input_folder, search_criteria)
+        input_files = sorted(glob.glob(q))
+        src_files_to_mosaic = [rio.open(f) for f in input_files]
+
+    mosaic_data, out_trans = merge(src_files_to_mosaic, **kwargs)
+
+    meta = src_files_to_mosaic[0].meta.copy()
+    meta.update({
+        "height": mosaic_data.shape[1],
+        "width": mosaic_data.shape[2],
+        "transform": out_trans,
+    })
+
+    with rio.open(output_file, 'w', **meta) as outds:
+        outds.write(mosaic_data)
+
+    return output_file
+
+def fmin_postprocessing(raster_a_path, raster_b_path, output_path):
+    """
+    Create a new raster where each pixel is the minimum of the corresponding pixels in two input rasters.
+    Nodata values are treated as np.nan.
+    
+    Parameters:
+        raster_a_path (str): File path to the first input raster.
+        raster_b_path (str): File path to the second input raster.
+        output_path (str): File path to save the output raster.
+    """
+    # Open raster a
+    with rasterio.open(raster_a_path) as src_a:
+        a = src_a.read(1).astype(float)
+        a[a == src_a.nodata] = np.nan
+        profile = src_a.profile.copy()
+
+    # Open raster b
+    with rasterio.open(raster_b_path) as src_b:
+        b = src_b.read(1).astype(float)
+        b[b == src_b.nodata] = np.nan
+
+    # Compute pixel-wise minimum, treating np.nan properly
+    c = np.fmin(a, b)
+
+    # Set a float nodata value if needed (optional)
+    nodata_value = -9999.0
+    c[np.isnan(c)] = nodata_value
+    profile.update(dtype='float32', nodata=nodata_value)
+
+    # Write output raster
+    with rasterio.open(output_path, 'w', **profile) as dst:
+        dst.write(c.astype('float32'), 1)
+
+
+def calculate_dod(dem1_path, dem2_path, output_path=None):
+    """
+    Calculate the Difference of DEMs (DoD) by subtracting dem1 from dem2.
+
+    Parameters:
+    - dem1_path (str): Path to the first DEM (baseline or older).
+    - dem2_path (str): Path to the second DEM (newer or comparison).
+    - output_path (str, optional): Path to save the output DoD raster. If None, doesn't save.
+
+    Returns:
+    - dod_array (np.ndarray): The difference array (dem2 - dem1).
+    """
+    with rasterio.open(dem1_path) as src1, rasterio.open(dem2_path) as src2:
+        if src1.shape != src2.shape or src1.transform != src2.transform or src1.crs != src2.crs:
+            raise ValueError("Input DEMs must have the same shape, transform, and CRS.")
+
+        dem1 = src1.read(1).astype(np.float32)
+        dem2 = src2.read(1).astype(np.float32)
+
+        # Mask nodata values
+        mask = (dem1 == src1.nodata) | (dem2 == src2.nodata)
+        dod = dem2 - dem1
+        dod[mask] = np.nan
+
+        if output_path:
+            profile = src1.profile
+            profile.update(dtype='float32', nodata=np.nan)
+            with rasterio.open(output_path, 'w', **profile) as dst:
+                dst.write(dod, 1)
+
+    return dod
 
 def get_raster_info(tif_path):
     """
