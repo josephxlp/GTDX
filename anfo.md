@@ -1,4 +1,4 @@
-[] clean up the code for GWR both versions fmin and the other [do it with cdem]
+[x] clean up the code for GWR both versions fmin and the other [do it with cdem]
 [] do the MLR both with and without residual and send also 
 [] do the compeition one 
 [] do the image one 
