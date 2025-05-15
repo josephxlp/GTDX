@@ -31,13 +31,24 @@ def calculate_rmse(predictions: np.ndarray, reference: np.ndarray) -> float:
     """Calculates the Root Mean Squared Error between two arrays."""
     return np.sqrt(np.mean((predictions - reference) ** 2))
 
-def average_ensemble(prediction_arrays: list[np.ndarray]) -> np.ndarray:
+def average_ensemble(prediction_arrays: list[np.ndarray], weights: list[float] = None) -> np.ndarray:
     """Calculates the average ensemble of multiple prediction arrays."""
-    return np.mean(np.stack(prediction_arrays), axis=0)
+    if weights is None:
+        return np.mean(np.stack(prediction_arrays), axis=0)
+    else:
+        # Handle the case where weights might sum to zero
+        total_weight = sum(weights)
+        if total_weight == 0:
+            # Return a zero-filled array with the same shape as the first prediction array
+            return np.zeros_like(prediction_arrays[0])
+        else:
+            normalized_weights = [w / total_weight for w in weights]
+            return np.average(np.stack(prediction_arrays), axis=0, weights=normalized_weights)
+
 
 def maximize_rmse(weights: np.ndarray, prediction_arrays: list[np.ndarray], reference_array: np.ndarray) -> float:
     """Calculates the negative RMSE for optimization (since we want to maximize RMSE)."""
-    ensemble = np.average(np.stack(prediction_arrays), axis=0, weights=weights)
+    ensemble = average_ensemble(prediction_arrays, weights)
     return -calculate_rmse(ensemble, reference_array)
 
 def ensemble_prediction(pred_paths: list[str], ref_path: str,
@@ -79,8 +90,6 @@ def ensemble_prediction(pred_paths: list[str], ref_path: str,
 
     reference_array, _, _ = load_raster(ref_path)
 
-
-
     if avge:
         avg_ensemble_array = average_ensemble(prediction_arrays)
         avge_fn = os.path.join(output_dir, "AVGe.tif")
@@ -93,7 +102,7 @@ def ensemble_prediction(pred_paths: list[str], ref_path: str,
 
         def bayesian_optimization_function(w1, w2, w3, w4):
             weights = [w1, w2, w3, w4]
-            ensemble = np.average(np.stack(prediction_arrays), axis=0, weights=weights)
+            ensemble = average_ensemble(prediction_arrays, weights)
             return -calculate_rmse(ensemble, reference_array)
 
         pbounds = {f'w{i+1}': (0, 1) for i in range(num_predictions)}
@@ -112,7 +121,7 @@ def ensemble_prediction(pred_paths: list[str], ref_path: str,
 
         best_weights = [optimizer.max['params'][f'w{i+1}'] for i in range(num_predictions)]
         print(print(f'best_weights @{best_weights}'))
-        optimized_ensemble_array = np.average(np.stack(prediction_arrays), axis=0, weights=best_weights)
+        optimized_ensemble_array = average_ensemble(prediction_arrays, best_weights)  # Use the corrected function
         opte_fn = os.path.join(output_dir, f"OPTe_{init_points}_{n_iter}.tif")
         write_raster(optimized_ensemble_array, transform, crs, opte_fn)
         print('===' * 40)
