@@ -5,19 +5,20 @@ import rasterio
 from rasterio.warp import calculate_default_transform, reproject, Resampling
 import numpy as np
 
-def gwrdownxcale(xpath, ypath, opath, geoid_fn,oaux=False, epsg_code=4979, clean=True,
+def gwrdownxcale(xpath, ypath, opath, geoid_fn, overwrite=False, oaux=False, epsg_code=4979, clean=True,
                  search_range=0, search_radius=10, dw_weighting=0, dw_idw_power=2.0, dw_bandwidth=1.0,
                  logistic=0, model_out=0, grid_system=None):
-    ti = time.perf_counter()
-    start_time = datetime.now()
-
     """
     Performs Geographically Weighted Regression (GWR) for grid downscaling.
 
     Parameters:
     - xpath (str): Path to the high-resolution DEM (predictor variable).
     - ypath (str): Path to the coarse-resolution data (dependent variable).
-    - opath (str): Path to save the output SAGA grid (.sdat file).
+    - opath (str): Path to save the base output SAGA grid (.sdat file).
+    - geoid_fn (str): Path to the geoid file for orthometric height conversion.
+    - overwrite (bool, optional): If True, re-runs processing and overwrites existing files.
+                                     If False, returns the expected output paths without running.
+                                     Defaults to False.
     - oaux (bool, optional): If True, generate additional outputs like regression correction, quality, and residuals. Defaults to False.
     - epsg_code (int, optional): EPSG code for the spatial reference system of the output GeoTIFF. Defaults to 4979.
     - clean (bool, optional): If True, remove intermediate SAGA files after conversion. Defaults to True.
@@ -39,25 +40,38 @@ def gwrdownxcale(xpath, ypath, opath, geoid_fn,oaux=False, epsg_code=4979, clean
     - grid_system (str, optional): Path to a SAGA grid system file to be used. If None, the grid system is determined from the input data. Defaults to None.
 
     Returns:
-    - str: Path to the output GeoTIFF file.
+    - list: A list containing the paths to the output GeoTIFF files:
+            [downscaled_dem.tif, filled_min_dem.tif, bias_corrected_dem.tif, filled_min_bias_corrected_dem.tif]
     """
-    gwrp_fn = gwr_grid_downscaling(xpath, ypath, opath, oaux=oaux, epsg_code=epsg_code, clean=clean,
+    opath_base, ext = os.path.splitext(opath)
+    gwrp_fn_base = f"{opath_base}_dw{dw_weighting}{ext.replace('.sdat', '')}"
+    gwrp_fn = f"{gwrp_fn_base}.tif"
+    fmin_fn = f"{gwrp_fn_base}_fmin.tif"
+    bcor_fn = f"{gwrp_fn_base}_bcor.tif"
+    fminbcor_fn = f"{gwrp_fn_base}_fminbcor.tif"
+    outpaths = [gwrp_fn, fmin_fn, bcor_fn, fminbcor_fn]
+
+    if not overwrite:
+        return outpaths
+
+    ti = time.perf_counter()
+    start_time = datetime.now()
+
+    print('gwr_grid_downscaling...')
+    gwr_grid_downscaling_output = gwr_grid_downscaling(xpath, ypath, opath, oaux=oaux, epsg_code=epsg_code, clean=clean,
                                      search_range=search_range, search_radius=search_radius, dw_weighting=dw_weighting,
                                      dw_idw_power=dw_idw_power, dw_bandwidth=dw_bandwidth, logistic=logistic,
                                      model_out=model_out, grid_system=grid_system)
-    
-    
+    gwrp_fn = gwr_grid_downscaling_output
+
     print('fmin_fn...')
-    fmin_fn = gwrp_fn.replace('.tif', '_fmin.tif')
-    fmin_get(xpath, gwrp_fn, fmin_fn) # xpath must be tdx 
+    fmin_get(xpath, gwrp_fn, fmin_fn) # xpath must be tdx
 
     print('bcor_fn...')
-    bcor_fn = gwrp_fn.replace('.tif', "_bcor.tif")
     bcor_sub(gwrp_fn, geoid_fn, bcor_fn)
 
     print('fminbcor_fn...')
-    fminbcor_fn = bcor_fn.replace('_bcor', '_fminbcor.tif')
-    fmin_get(xpath, bcor_fn, fminbcor_fn) # xpath must be tdx 
+    fmin_get(xpath, bcor_fn, fminbcor_fn) # xpath must be tdx
 
     tf = time.perf_counter() - ti
     end_time = datetime.now()
@@ -80,7 +94,7 @@ def gwrdownxcale(xpath, ypath, opath, geoid_fn,oaux=False, epsg_code=4979, clean
     print(f'Start time: {start_time.strftime("%Y-%m-%d %H:%M:%S")}')
     print(f'End time: {end_time.strftime("%Y-%m-%d %H:%M:%S")}')
     print(f'RUN.TIME = {time_taken_str}')
-    outpaths = [gwrp_fn,fmin_fn,bcor_fn,fminbcor_fn]
+
     return outpaths
 
 
@@ -112,7 +126,10 @@ def gwr_grid_downscaling(xpath, ypath, opath, oaux=False, epsg_code=4979, clean=
     - dw_bandwidth (float, optional): Bandwidth for exponential and Gaussian weighting. Minimum: 0.0. Defaults to 1.0.
     - logistic (int, optional): Enable logistic regression (Boolean: 0 for False, 1 for True). Defaults to 0.
     - model_out (int, optional): Output the model parameters (Boolean: 0 for False, 1 for True). Defaults to 0.
-    - grid_system (str, optional): Path to the output GeoTIFF file.
+    - grid_system (str, optional): Path to a SAGA grid system file to be used. If None, the grid system is determined from the input data. Defaults to None.
+
+    Returns:
+    - str: Path to the output GeoTIFF file.
     """
 
     opath_base, ext = os.path.splitext(opath)
@@ -248,7 +265,7 @@ def fmin_get(raster_a_path, raster_b_path, output_path):
     """
     Create a new raster where each pixel is the minimum of the corresponding pixels in two input rasters.
     Nodata values are treated as np.nan.
-    
+
     Parameters:
         raster_a_path (str): File path to the first input raster.
         raster_b_path (str): File path to the second input raster.

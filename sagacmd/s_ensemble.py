@@ -1,4 +1,4 @@
-import os 
+import os
 import rasterio
 import numpy as np
 from scipy.optimize import minimize
@@ -40,24 +40,38 @@ def maximize_rmse(weights: np.ndarray, prediction_arrays: list[np.ndarray], refe
     ensemble = np.average(np.stack(prediction_arrays), axis=0, weights=weights)
     return -calculate_rmse(ensemble, reference_array)
 
-def ensemble_prediction(pred_paths: list[str], ref_path: str, 
-                        init_points:int=10, n_iter:int=100,
-                        avge=True, opte=True):
+def ensemble_prediction(pred_paths: list[str], ref_path: str,
+                        init_points: int = 10, n_iter: int = 100,
+                        avge: bool = True, opte: bool = True,
+                        overwrite: bool = True):
     """
-    init_points=5 n_iter=15 as baselines 
     Calculates and saves the average and optimized (maximizing RMSE) ensemble predictions.
 
     Args:
         pred_paths (list[str]): List of paths to the prediction raster files.
         ref_path (str): Path to the reference raster file.
+        init_points (int, optional): Number of initial points for Bayesian optimization. Defaults to 10.
+        n_iter (int, optional): Number of iterations for Bayesian optimization. Defaults to 100.
         avge (bool, optional): Whether to calculate and save the average ensemble. Defaults to True.
         opte (bool, optional): Whether to calculate and save the optimized ensemble (maximizing RMSE). Defaults to True.
+        overwrite (bool, optional): If True, calculates and saves outputs. If False, returns paths without processing. Defaults to True.
 
     Returns:
         tuple: A tuple containing the file paths of the average ensemble raster (if avge=True)
                and the optimized ensemble raster (if opte=True). Returns None for either if the
-               corresponding argument is False.
+               corresponding argument is False, or if overwrite is False.
     """
+    output_dir = os.path.dirname(pred_paths[0])
+    avge_fn = None
+    opte_fn = None
+
+    if not overwrite:
+        if avge:
+            avge_fn = os.path.join(output_dir, "AVGe.tif")
+        if opte:
+            opte_fn = os.path.join(output_dir, f"OPTe_{init_points}_{n_iter}.tif")
+        return avge_fn, opte_fn
+
     prediction_arrays = []
     for path in pred_paths:
         array, transform, crs = load_raster(path)
@@ -65,9 +79,7 @@ def ensemble_prediction(pred_paths: list[str], ref_path: str,
 
     reference_array, _, _ = load_raster(ref_path)
 
-    output_dir = os.path.dirname(pred_paths[0])
-    avge_fn = None
-    opte_fn = None
+
 
     if avge:
         avg_ensemble_array = average_ensemble(prediction_arrays)
@@ -93,7 +105,6 @@ def ensemble_prediction(pred_paths: list[str], ref_path: str,
             random_state=1,
         )
 
-        
         optimizer.maximize(
             init_points=init_points,
             n_iter=n_iter,
@@ -104,9 +115,8 @@ def ensemble_prediction(pred_paths: list[str], ref_path: str,
         optimized_ensemble_array = np.average(np.stack(prediction_arrays), axis=0, weights=best_weights)
         opte_fn = os.path.join(output_dir, f"OPTe_{init_points}_{n_iter}.tif")
         write_raster(optimized_ensemble_array, transform, crs, opte_fn)
-        print('==='*40)
+        print('===' * 40)
         print(f"Optimized ensemble (maximizing RMSE) saved to: {opte_fn}")
         print(f"Optimized weights: {best_weights}")
 
     return avge_fn, opte_fn
-
