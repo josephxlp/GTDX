@@ -1,8 +1,8 @@
+import os 
 import rasterio
 import numpy as np
 from scipy.optimize import minimize
 from bayes_opt import BayesianOptimization
-import os
 
 def load_raster(raster_path: str) -> tuple[np.ndarray, rasterio.transform.Affine, rasterio.crs.CRS]:
     """Loads a raster into a NumPy array and returns its metadata."""

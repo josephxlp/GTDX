@@ -1,9 +1,11 @@
 import os
 import time
 from datetime import datetime
+import rasterio
+from rasterio.warp import calculate_default_transform, reproject, Resampling
+import numpy as np
 
-##  i want to add dw_weighting value to the outfiles inside the function
-def gwrdownxcale(xpath, ypath, opath, oaux=False, epsg_code=4979, clean=True,
+def gwrdownxcale(xpath, ypath, opath, geoid_fn,oaux=False, epsg_code=4979, clean=True,
                  search_range=0, search_radius=10, dw_weighting=0, dw_idw_power=2.0, dw_bandwidth=1.0,
                  logistic=0, model_out=0, grid_system=None):
     ti = time.perf_counter()
@@ -37,15 +39,25 @@ def gwrdownxcale(xpath, ypath, opath, oaux=False, epsg_code=4979, clean=True,
     - grid_system (str, optional): Path to a SAGA grid system file to be used. If None, the grid system is determined from the input data. Defaults to None.
 
     Returns:
-    - None: Saves the output files to the specified paths.
-
-    Documentation:
-    https://saga-gis.sourceforge.io/saga_tool_doc/8.2.2/statistics_regression_14.html
+    - str: Path to the output GeoTIFF file.
     """
-    gwr_grid_downscaling(xpath, ypath, opath, oaux=oaux, epsg_code=epsg_code, clean=clean,
-                         search_range=search_range, search_radius=search_radius, dw_weighting=dw_weighting,
-                         dw_idw_power=dw_idw_power, dw_bandwidth=dw_bandwidth, logistic=logistic,
-                         model_out=model_out, grid_system=grid_system)
+    gwrp_fn = gwr_grid_downscaling(xpath, ypath, opath, oaux=oaux, epsg_code=epsg_code, clean=clean,
+                                     search_range=search_range, search_radius=search_radius, dw_weighting=dw_weighting,
+                                     dw_idw_power=dw_idw_power, dw_bandwidth=dw_bandwidth, logistic=logistic,
+                                     model_out=model_out, grid_system=grid_system)
+    
+    
+    print('fmin_fn...')
+    fmin_fn = gwrp_fn.replace('.tif', '_fmin.tif')
+    fmin_get(xpath, gwrp_fn, fmin_fn) # xpath must be tdx 
+
+    print('bcor_fn...')
+    bcor_fn = gwrp_fn.replace('.tif', "_bcor.tif")
+    bcor_sub(gwrp_fn, geoid_fn, bcor_fn)
+
+    print('fminbcor_fn...')
+    fminbcor_fn = bcor_fn.replace('_bcor', '_fminbcor.tif')
+    fmin_get(xpath, bcor_fn, fminbcor_fn) # xpath must be tdx 
 
     tf = time.perf_counter() - ti
     end_time = datetime.now()
@@ -68,6 +80,8 @@ def gwrdownxcale(xpath, ypath, opath, oaux=False, epsg_code=4979, clean=True,
     print(f'Start time: {start_time.strftime("%Y-%m-%d %H:%M:%S")}')
     print(f'End time: {end_time.strftime("%Y-%m-%d %H:%M:%S")}')
     print(f'RUN.TIME = {time_taken_str}')
+    outpaths = [gwrp_fn,fmin_fn,bcor_fn,fminbcor_fn]
+    return outpaths
 
 
 def gwr_grid_downscaling(xpath, ypath, opath, oaux=False, epsg_code=4979, clean=True,
@@ -98,13 +112,7 @@ def gwr_grid_downscaling(xpath, ypath, opath, oaux=False, epsg_code=4979, clean=
     - dw_bandwidth (float, optional): Bandwidth for exponential and Gaussian weighting. Minimum: 0.0. Defaults to 1.0.
     - logistic (int, optional): Enable logistic regression (Boolean: 0 for False, 1 for True). Defaults to 0.
     - model_out (int, optional): Output the model parameters (Boolean: 0 for False, 1 for True). Defaults to 0.
-    - grid_system (str, optional): Path to a SAGA grid system file to be used. If None, the grid system is determined from the input data. Defaults to None.
-
-    Returns:
-    - None: Saves the output files to the specified paths.
-
-    Documentation:
-    https://saga-gis.sourceforge.io/saga_tool_doc/8.2.2/statistics_regression_14.html
+    - grid_system (str, optional): Path to the output GeoTIFF file.
     """
 
     opath_base, ext = os.path.splitext(opath)
@@ -162,6 +170,7 @@ def gwr_grid_downscaling(xpath, ypath, opath, oaux=False, epsg_code=4979, clean=
                     os.remove(fo)
                 else:
                     print(f'Skipping directory: {fo}')
+    return otif
 
 
 def sdat_to_geotif(sdat_path, gtif_path, epsg_code=4979):
@@ -190,3 +199,80 @@ def sdat_to_geotif(sdat_path, gtif_path, epsg_code=4979):
         print(f'# Successfully converted "{sdat_path}" to "{gtif_path}".')
     else:
         print(f'! Failed to convert "{sdat_path}" to "{gtif_path}". Check the input files and GDAL installation.')
+
+
+def resample_raster(src_path, match_path, resampling=Resampling.bilinear):
+    with rasterio.open(match_path) as match_ds:
+        match_transform = match_ds.transform
+        match_crs = match_ds.crs
+        match_width = match_ds.width
+        match_height = match_ds.height
+
+        with rasterio.open(src_path) as src_ds:
+            data = np.empty((src_ds.count, match_height, match_width), dtype=np.float32)
+
+            for i in range(src_ds.count):
+                reproject(
+                    source=rasterio.band(src_ds, i + 1),
+                    destination=data[i],
+                    src_transform=src_ds.transform,
+                    src_crs=src_ds.crs,
+                    dst_transform=match_transform,
+                    dst_crs=match_crs,
+                    resampling=resampling
+                )
+
+            profile = match_ds.profile.copy()
+            profile.update({
+                'height': match_height,
+                'width': match_width,
+                'transform': match_transform,
+                'dtype': 'float32'
+            })
+
+            return data, profile
+
+def bcor_sub(fine_path, coarse_path, output_path):
+    coarse_resampled, profile = resample_raster(coarse_path, fine_path)
+
+    with rasterio.open(fine_path) as fine_ds:
+        fine_data = fine_ds.read().astype(np.float32)
+
+    # Subtract (fine - coarse)
+    diff = fine_data - coarse_resampled
+
+    with rasterio.open(output_path, 'w', **profile) as dst:
+        dst.write(diff)
+
+def fmin_get(raster_a_path, raster_b_path, output_path):
+    """
+    Create a new raster where each pixel is the minimum of the corresponding pixels in two input rasters.
+    Nodata values are treated as np.nan.
+    
+    Parameters:
+        raster_a_path (str): File path to the first input raster.
+        raster_b_path (str): File path to the second input raster.
+        output_path (str): File path to save the output raster.
+    """
+    # Open raster a
+    with rasterio.open(raster_a_path) as src_a:
+        a = src_a.read(1).astype(float)
+        a[a == src_a.nodata] = np.nan
+        profile = src_a.profile.copy()
+
+    # Open raster b
+    with rasterio.open(raster_b_path) as src_b:
+        b = src_b.read(1).astype(float)
+        b[b == src_b.nodata] = np.nan
+
+    # Compute pixel-wise minimum, treating np.nan properly
+    c = np.fmin(a, b)
+
+    # Set a float nodata value if needed (optional)
+    nodata_value = -9999.0
+    c[np.isnan(c)] = nodata_value
+    profile.update(dtype='float32', nodata=nodata_value)
+
+    # Write output raster
+    with rasterio.open(output_path, 'w', **profile) as dst:
+        dst.write(c.astype('float32'), 1)
