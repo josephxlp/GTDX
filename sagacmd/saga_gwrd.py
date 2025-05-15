@@ -1,10 +1,14 @@
 import os
 import time
+from datetime import datetime
 
+##  i want to add dw_weighting value to the outfiles inside the function
 def gwrdownxcale(xpath, ypath, opath, oaux=False, epsg_code=4979, clean=True,
                  search_range=0, search_radius=10, dw_weighting=0, dw_idw_power=2.0, dw_bandwidth=1.0,
                  logistic=0, model_out=0, grid_system=None):
     ti = time.perf_counter()
+    start_time = datetime.now()
+
     """
     Performs Geographically Weighted Regression (GWR) for grid downscaling.
 
@@ -43,9 +47,27 @@ def gwrdownxcale(xpath, ypath, opath, oaux=False, epsg_code=4979, clean=True,
                          dw_idw_power=dw_idw_power, dw_bandwidth=dw_bandwidth, logistic=logistic,
                          model_out=model_out, grid_system=grid_system)
 
-    tf = time.perf_counter() - ti 
-    print(f'RUN.TIME = {tf/60} min ')
-    # improvr this to give print start date and end date, time taken min,hour,days
+    tf = time.perf_counter() - ti
+    end_time = datetime.now()
+    duration = end_time - start_time
+    minutes = int(duration.total_seconds() // 60)
+    seconds = int(duration.total_seconds() % 60)
+    hours = int(minutes // 60)
+    remaining_minutes = int(minutes % 60)
+    days = int(hours // 24)
+    remaining_hours = int(hours % 24)
+
+    time_taken_str = f'{seconds} seconds'
+    if remaining_minutes > 0:
+        time_taken_str = f'{remaining_minutes} minutes, ' + time_taken_str
+    if remaining_hours > 0:
+        time_taken_str = f'{remaining_hours} hours, ' + time_taken_str
+    if days > 0:
+        time_taken_str = f'{days} days, ' + time_taken_str
+
+    print(f'Start time: {start_time.strftime("%Y-%m-%d %H:%M:%S")}')
+    print(f'End time: {end_time.strftime("%Y-%m-%d %H:%M:%S")}')
+    print(f'RUN.TIME = {time_taken_str}')
 
 
 def gwr_grid_downscaling(xpath, ypath, opath, oaux=False, epsg_code=4979, clean=True,
@@ -84,7 +106,9 @@ def gwr_grid_downscaling(xpath, ypath, opath, oaux=False, epsg_code=4979, clean=
     Documentation:
     https://saga-gis.sourceforge.io/saga_tool_doc/8.2.2/statistics_regression_14.html
     """
-    otif = opath.replace('.sdat', '.tif')
+
+    opath_base, ext = os.path.splitext(opath)
+    otif = f"{opath_base}_dw{dw_weighting}{ext.replace('.sdat', '.tif')}"
 
     # Construct the base SAGA command
     cmd = (
@@ -106,9 +130,9 @@ def gwr_grid_downscaling(xpath, ypath, opath, oaux=False, epsg_code=4979, clean=
 
     if oaux:
         # Add optional outputs for residual correction, quality, and residuals
-        opath_rescorr = opath.replace('.sdat', '_RESCORR.sdat')
-        opath_quality = opath.replace('.sdat', '_QUALITY.sdat')
-        opath_residuals = opath.replace('.sdat', '_RESIDUALS.sdat')
+        opath_rescorr = f"{opath_base}_RESCORR_dw{dw_weighting}.sdat"
+        opath_quality = f"{opath_base}_QUALITY_dw{dw_weighting}.sdat"
+        opath_residuals = f"{opath_base}_RESIDUALS_dw{dw_weighting}.sdat"
         cmd += (
             f" -REG_RESCORR {opath_rescorr} "
             f"-QUALITY {opath_quality} "
@@ -123,7 +147,7 @@ def gwr_grid_downscaling(xpath, ypath, opath, oaux=False, epsg_code=4979, clean=
 
     print("GWR Grid Downscaling completed.")
     if oaux:
-        print(f"Additional outputs saved: \n{opath_rescorr}, \n{opath_quality}, \n{opath_residuals}")
+        print(f"Additional outputs saved: \n{opath_rescorr.replace('.sdat', '.tif')}, \n{opath_quality.replace('.sdat', '.tif')}, \n{opath_residuals.replace('.sdat', '.tif')}")
 
     if clean:
         time.sleep(1)
