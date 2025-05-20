@@ -51,7 +51,7 @@ def maximize_rmse(weights: np.ndarray, prediction_arrays: list[np.ndarray], refe
     ensemble = average_ensemble(prediction_arrays, weights)
     return -calculate_rmse(ensemble, reference_array)
 
-def ensemble_prediction(pred_paths: list[str], ref_path: str,
+def ensemble_prediction(ename:str, pred_paths: list[str], ref_path: str,
                         init_points: int = 10, n_iter: int = 100,
                         avge: bool = True, opte: bool = True,
                         overwrite: bool = True):
@@ -78,9 +78,9 @@ def ensemble_prediction(pred_paths: list[str], ref_path: str,
 
     if not overwrite:
         if avge:
-            avge_fn = os.path.join(output_dir, "AVGe.tif")
+            avge_fn = os.path.join(output_dir, f"{ename}_avge.tif")
         if opte:
-            opte_fn = os.path.join(output_dir, f"OPTe_{init_points}_{n_iter}.tif")
+            opte_fn = os.path.join(output_dir, f"{ename}_opte_{init_points}_{n_iter}.tif")
         return avge_fn, opte_fn
 
     prediction_arrays = []
@@ -91,41 +91,48 @@ def ensemble_prediction(pred_paths: list[str], ref_path: str,
     reference_array, _, _ = load_raster(ref_path)
 
     if avge:
-        avg_ensemble_array = average_ensemble(prediction_arrays)
-        avge_fn = os.path.join(output_dir, "AVGe.tif")
-        write_raster(avg_ensemble_array, transform, crs, avge_fn)
-        print(f"Average ensemble saved to: {avge_fn}")
+        avge_fn = os.path.join(output_dir, f"{ename}_avge.tif")
+        if not os.path.isfile(avge_fn):
+            avg_ensemble_array = average_ensemble(prediction_arrays)
+            write_raster(avg_ensemble_array, transform, crs, avge_fn)
+            print(f"Average ensemble saving to: {avge_fn}")
+        else:
+            print(f"Average ensemble already exists at: {avge_fn}")
 
     if opte:
-        num_predictions = len(prediction_arrays)
-        print(f'num_predictions @{num_predictions}')
+        opte_fn = os.path.join(output_dir, f"{ename}_opte_{init_points}_{n_iter}.tif")
+        if not os.path.isfile(opte_fn):
+            num_predictions = len(prediction_arrays)
+            print(f'num_predictions @{num_predictions}')
 
-        def bayesian_optimization_function(w1, w2, w3, w4):
-            weights = [w1, w2, w3, w4]
-            ensemble = average_ensemble(prediction_arrays, weights)
-            return -calculate_rmse(ensemble, reference_array)
+            def bayesian_optimization_function(w1, w2, w3, w4):
+                weights = [w1, w2, w3, w4]
+                ensemble = average_ensemble(prediction_arrays, weights)
+                return -calculate_rmse(ensemble, reference_array)
 
-        pbounds = {f'w{i+1}': (0, 1) for i in range(num_predictions)}
-        print(f'pbounds @{pbounds}')
+            pbounds = {f'w{i+1}': (0, 1) for i in range(num_predictions)}
+            print(f'pbounds @{pbounds}')
 
-        optimizer = BayesianOptimization(
-            f=bayesian_optimization_function,
-            pbounds=pbounds,
-            random_state=1,
-        )
+            optimizer = BayesianOptimization(
+                f=bayesian_optimization_function,
+                pbounds=pbounds,
+                random_state=1,
+            )
 
-        optimizer.maximize(
-            init_points=init_points,
-            n_iter=n_iter,
-        )
+            optimizer.maximize(
+                init_points=init_points,
+                n_iter=n_iter,
+            )
 
-        best_weights = [optimizer.max['params'][f'w{i+1}'] for i in range(num_predictions)]
-        print(print(f'best_weights @{best_weights}'))
-        optimized_ensemble_array = average_ensemble(prediction_arrays, best_weights)  # Use the corrected function
-        opte_fn = os.path.join(output_dir, f"OPTe_{init_points}_{n_iter}.tif")
-        write_raster(optimized_ensemble_array, transform, crs, opte_fn)
-        print('===' * 40)
-        print(f"Optimized ensemble (maximizing RMSE) saved to: {opte_fn}")
-        print(f"Optimized weights: {best_weights}")
+            best_weights = [optimizer.max['params'][f'w{i+1}'] for i in range(num_predictions)]
+            print(print(f'best_weights @{best_weights}'))
+            optimized_ensemble_array = average_ensemble(prediction_arrays, best_weights)  # Use the corrected function
+            
+            write_raster(optimized_ensemble_array, transform, crs, opte_fn)
+            print('===' * 40)
+            print(f"Optimized ensemble (maximizing RMSE) saved to: {opte_fn}")
+            print(f"Optimized weights: {best_weights}")
+        else:
+            print(f"opt ensemble already exists at: {opte_fn}")
 
     return avge_fn, opte_fn
