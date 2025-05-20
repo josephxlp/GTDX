@@ -91,6 +91,7 @@ def ensemble_prediction(ename:str, pred_paths: list[str], ref_path: str,
     reference_array, _, _ = load_raster(ref_path)
 
     if avge:
+
         avge_fn = os.path.join(output_dir, f"{ename}_avge.tif")
         if not os.path.isfile(avge_fn):
             avg_ensemble_array = average_ensemble(prediction_arrays)
@@ -134,5 +135,4 @@ def ensemble_prediction(ename:str, pred_paths: list[str], ref_path: str,
             print(f"Optimized weights: {best_weights}")
         else:
             print(f"opt ensemble already exists at: {opte_fn}")
-
     return avge_fn, opte_fn
