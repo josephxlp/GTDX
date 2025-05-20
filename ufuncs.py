@@ -71,13 +71,26 @@ def fmin_postprocessing(raster_a_path: str, raster_b_path: str, output_path: str
         with rasterio.open(output_path, 'w', **profile) as dst:
             dst.write(c.astype('float32'), 1)
 
-def calculate_dod(dem1_path: str, dem2_path: str, output_path: Optional[str] = None):
-    """Calculates the Difference of DEMs (DoD)."""
+def calculate_dod(dem1_path, dem2_path, output_path=None):
+    """
+    Calculate the Difference of DEMs (DoD) by subtracting dem1 from dem2.
+
+    Parameters:
+    - dem1_path (str): Path to the first DEM (baseline or older).
+    - dem2_path (str): Path to the second DEM (newer or comparison).
+    - output_path (str, optional): Path to save the output DoD raster. If None, doesn't save.
+
+    Returns:
+    - dod_array (np.ndarray): The difference array (dem2 - dem1).
+    """
     with rasterio.open(dem1_path) as src1, rasterio.open(dem2_path) as src2:
         if src1.shape != src2.shape or src1.transform != src2.transform or src1.crs != src2.crs:
             raise ValueError("Input DEMs must have the same shape, transform, and CRS.")
+
         dem1 = src1.read(1).astype(np.float32)
         dem2 = src2.read(1).astype(np.float32)
+
+        # Mask nodata values
         mask = (dem1 == src1.nodata) | (dem2 == src2.nodata)
         dod = dem2 - dem1
         dod[mask] = np.nan
@@ -101,7 +114,6 @@ def get_raster_info(tif_path: str):
     return proj, xres, yres, xmin, xmax, ymin, ymax, width, height
 
 def get_nodata_value(raster_path: str):
-    """Retrieves the NoData value of a raster."""
     with rasterio.open(raster_path) as src:
         return src.nodata
 
