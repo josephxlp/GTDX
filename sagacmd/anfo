@@ -1,0 +1,25 @@
+add this model into the saga package 
+
+# Goal: All in here to python code  15
+https://saga-gis.sourceforge.io/saga_tool_doc/9.0.0/statistics_regression.html
+https://saga-gis.sourceforge.io/saga_tool_doc/2.2.0/statistics_regression.html
+
+2. [+]GWR for Grid Downscaling :: 
+2.1 [x]ensemble by dw_weighting 0,1,2,3 
+- speed : 0,1,2,3 == ~1 min 
+- detail: 0,1,2,3 == yes
+- elevations: 0,1,2,3 == yes, there's variability 
+> if all produce compareble results, then this is ensemble and not play with other param !
+2.2 [x] add to the pipeline 
+2.3 [@] add the new postprocessing (force_taget_min)
+2.4 [x] ensemble avge and opte 
+2.5 [x] run for block 
+2.6 [] dictionary key:value to translate my-maning to rolf-naming and upload 
+
+[] exclude other files from the analysis to save time 
+[] can we save the model, and use it to make predictions ?
+- no need as this stuff are locally weighted 
+
+3. [] with with edit-ana and #canvas - strategyzer,made-with-ml,exeter 
+
+

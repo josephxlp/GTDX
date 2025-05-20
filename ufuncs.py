@@ -1,77 +1,75 @@
-import os 
-from osgeo import gdal, gdalconst
-import rasterio 
-import subprocess
-import numpy as np
-
-gdal.UseExceptions()
-
 import os
 import glob
-import rasterio as rio
+import subprocess
+import numpy as np
+import rasterio
 from rasterio.merge import merge
+from rasterio.warp import reproject, Resampling
 from typing import Optional, List
 
+def resample_raster(src_path: str, match_path: str, resampling: Resampling = Resampling.bilinear):
+    """Resamples a source raster to match the properties of a target raster."""
+    with rasterio.open(match_path) as match_ds:
+        transform = match_ds.transform
+        crs = match_ds.crs
+        width = match_ds.width
+        height = match_ds.height
+        profile = match_ds.profile.copy()
+        profile.update({'height': height, 'width': width, 'transform': transform, 'dtype': 'float32'})
+        data = np.empty((match_ds.count, height, width), dtype=np.float32)
+        with rasterio.open(src_path) as src_ds:
+            for i in range(src_ds.count):
+                reproject(
+                    source=rasterio.band(src_ds, i + 1),
+                    destination=data[i],
+                    src_transform=src_ds.transform,
+                    src_crs=src_ds.crs,
+                    dst_transform=transform,
+                    dst_crs=crs,
+                    resampling=resampling,
+                )
+    return data, profile
 
-def mosaic(input_folder: Optional[str] = None, output_file: str = '', image_format: Optional[str] = 'tif', input_files: Optional[List[str]] = None, **kwargs):
+def subtract_rasters(fine_path: str, coarse_path: str, output_path: str):
+    """Subtracts a resampled coarse raster from a fine raster."""
+    coarse_resampled, profile = resample_raster(coarse_path, fine_path)
+    with rasterio.open(fine_path) as fine_ds:
+        diff = fine_ds.read().astype(np.float32) - coarse_resampled
+    with rasterio.open(output_path, 'w', **profile) as dst:
+        dst.write(diff)
+
+def mosaic(input_folder: Optional[str] = None, output_file: str = '', image_format: str = 'tif', input_files: Optional[List[str]] = None, **kwargs):
+    """Mosaics multiple raster files."""
     if input_folder is None and input_files is None:
         raise ValueError("Either input_folder or input_files must be provided.")
-    
     if input_files is not None:
-        src_files_to_mosaic = [rio.open(f) for f in input_files]
+        sources = [rasterio.open(f) for f in input_files]
     else:
         search_criteria = f"*.{image_format}"
-        q = os.path.join(input_folder, search_criteria)
-        input_files = sorted(glob.glob(q))
-        src_files_to_mosaic = [rio.open(f) for f in input_files]
-
-    mosaic_data, out_trans = merge(src_files_to_mosaic, **kwargs)
-
-    meta = src_files_to_mosaic[0].meta.copy()
-    meta.update({
-        "height": mosaic_data.shape[1],
-        "width": mosaic_data.shape[2],
-        "transform": out_trans,
-    })
-
-    with rio.open(output_file, 'w', **meta) as outds:
+        sources = [rasterio.open(f) for f in sorted(glob.glob(os.path.join(input_folder, search_criteria)))]
+    mosaic_data, out_trans = merge(sources, **kwargs)
+    meta = sources[0].meta.copy()
+    meta.update({"height": mosaic_data.shape[1], "width": mosaic_data.shape[2], "transform": out_trans})
+    with rasterio.open(output_file, 'w', **meta) as outds:
         outds.write(mosaic_data)
-
     return output_file
 
-def fmin_postprocessing(raster_a_path, raster_b_path, output_path):
-    """
-    Create a new raster where each pixel is the minimum of the corresponding pixels in two input rasters.
-    Nodata values are treated as np.nan.
-    
-    Parameters:
-        raster_a_path (str): File path to the first input raster.
-        raster_b_path (str): File path to the second input raster.
-        output_path (str): File path to save the output raster.
-    """
-    # Open raster a
-    with rasterio.open(raster_a_path) as src_a:
+def fmin_postprocessing(raster_a_path: str, raster_b_path: str, output_path: str):
+    """Calculates the pixel-wise minimum of two rasters, handling NoData."""
+    with rasterio.open(raster_a_path) as src_a, rasterio.open(raster_b_path) as src_b:
         a = src_a.read(1).astype(float)
-        a[a == src_a.nodata] = np.nan
-        profile = src_a.profile.copy()
-
-    # Open raster b
-    with rasterio.open(raster_b_path) as src_b:
         b = src_b.read(1).astype(float)
-        b[b == src_b.nodata] = np.nan
-
-    # Compute pixel-wise minimum, treating np.nan properly
-    c = np.fmin(a, b)
-
-    # Set a float nodata value if needed (optional)
-    nodata_value = -9999.0
-    c[np.isnan(c)] = nodata_value
-    profile.update(dtype='float32', nodata=nodata_value)
-
-    # Write output raster
-    with rasterio.open(output_path, 'w', **profile) as dst:
-        dst.write(c.astype('float32'), 1)
-
+        nodata_a = src_a.nodata
+        nodata_b = src_b.nodata
+        a[a == nodata_a] = np.nan
+        b[b == nodata_b] = np.nan
+        c = np.fmin(a, b)
+        nodata_out = -9999.0
+        c[np.isnan(c)] = nodata_out
+        profile = src_a.profile.copy()
+        profile.update(dtype='float32', nodata=nodata_out)
+        with rasterio.open(output_path, 'w', **profile) as dst:
+            dst.write(c.astype('float32'), 1)
 
 def calculate_dod(dem1_path, dem2_path, output_path=None):
     """
@@ -96,134 +94,61 @@ def calculate_dod(dem1_path, dem2_path, output_path=None):
         mask = (dem1 == src1.nodata) | (dem2 == src2.nodata)
         dod = dem2 - dem1
         dod[mask] = np.nan
-
         if output_path:
             profile = src1.profile
             profile.update(dtype='float32', nodata=np.nan)
             with rasterio.open(output_path, 'w', **profile) as dst:
                 dst.write(dod, 1)
-
     return dod
 
-def get_raster_info(tif_path):
-    """
-    Extracts raster metadata including projection, resolution, and bounding box.
+def get_raster_info(tif_path: str):
+    """Extracts raster metadata."""
+    with rasterio.open(tif_path) as ds:
+        transform = ds.transform
+        proj = str(ds.crs)
+        width = ds.width
+        height = ds.height
+        xmin, ymax = transform[2], transform[5]
+        xmax, ymin = transform[2] + transform[0] * width, transform[5] + transform[4] * height
+        xres, yres = transform[0], transform[4]
+    return proj, xres, yres, xmin, xmax, ymin, ymax, width, height
 
-    Parameters:
-        tif_path (str): Path to the raster file.
-
-    Returns:
-        tuple: Raster projection, resolution, bounding box, and dimensions.
-    """
-    ds = gdal.Open(tif_path, gdalconst.GA_ReadOnly)
-    proj = ds.GetProjection()
-    geotrans = ds.GetGeoTransform()
-    xres = geotrans[1]
-    yres = geotrans[5]
-    w, h = ds.RasterXSize, ds.RasterYSize
-    xmin, ymax = geotrans[0], geotrans[3]
-    xmax = xmin + (xres * w)
-    ymin = ymax + (yres * h)
-    ds = None
-    return proj, xres, yres, xmin, xmax, ymin, ymax, w, h
-
-def get_nodata_value(raster_path):
-    """
-    Retrieves the NoData value of a raster.
-
-    Parameters:
-        raster_path (str): Path to the raster file.
-
-    Returns:
-        float: NoData value.
-    """
+def get_nodata_value(raster_path: str):
     with rasterio.open(raster_path) as src:
         return src.nodata
 
-def gdal_regrid(fi, fo, xmin, ymin, xmax, ymax, xres, yres,
-                mode, t_epsg='EPSG:4979', overwrite=False):
-    """
-    Regrids a raster file using GDAL.
-
-    Parameters:
-        fi (str): Input raster file path.
-        fo (str): Output raster file path.
-        xmin, ymin, xmax, ymax (float): Bounding box.
-        xres, yres (float): Target resolution.
-        mode (str): Regridding mode ('num' or 'cat').
-        t_epsg (str): Target EPSG code.
-        overwrite (bool): Whether to overwrite existing output.
-
-    Returns:
-        None
-    """
+def gdal_regrid(fi: str, fo: str, xmin: float, ymin: float, xmax: float, ymax: float, xres: float, yres: float,
+                mode: str, t_epsg: str = 'EPSG:4979', overwrite: bool = False):
+    """Regrids a raster file using GDAL."""
     if mode == 'num':
-        ndv, algo, dtype = num_regrid_params()
+        ndv, algo, dtype = -9999.0, 'bilinear', 'Float32'
     elif mode == 'cat':
-        ndv, algo, dtype = cat_regrid_params()
+        ndv, algo, dtype = 0, 'near', 'Byte'
     else:
         raise ValueError("Invalid mode. Use 'num' or 'cat'.")
 
-    src_ndv = get_nodata_value(fi)
-    dst_ndv = ndv
-
-    print(f"Source NoData Value: {src_ndv}")
-    print(f"Destination NoData Value: {dst_ndv}")
+    with rasterio.open(fi) as src:
+        src_ndv = src.nodata
 
     overwrite_option = "-overwrite" if overwrite else ""
-    output_width = round((xmax - xmin) / xres)
-    output_height = round((ymax - ymin) / abs(yres))
-
     cmd = (f'gdalwarp -ot {dtype} -multi {overwrite_option} '
            f'-te {xmin} {ymin} {xmax} {ymax} '
-          # f'-ts {output_width} {output_height} '
-           f'-r {algo} -t_srs {t_epsg} -tr {xres} {yres} -tap '
+           f'-tr {xres} {abs(yres)} -r {algo} -t_srs {t_epsg} -tap '
            f'-co compress=lzw -co num_threads=all_cpus -co TILED=YES '
-           f'-srcnodata {src_ndv} -dstnodata {dst_ndv} '
+           f'-srcnodata {src_ndv} -dstnodata {ndv} '
            f'{fi} {fo}')
-
     os.system(cmd)
 
-def cat_regrid_params():
-    """
-    Returns parameters for categorical regridding.
-
-    Returns:
-        tuple: NoData value, resampling algorithm, and data type.
-    """
-    return 0, 'near', 'Byte'
-
-def num_regrid_params():
-    """
-    Returns parameters for numerical regridding.
-
-    Returns:
-        tuple: NoData value, resampling algorithm, and data type.
-    """
-    return -9999.0, 'bilinear', 'Float32'
-
-def build_vrt(epsg_code=4326, input_list="my_list.txt", output_vrt="doq_index.vrt"):
-    """
-    Builds a VRT file using GDAL with specified parameters.
-
-    Parameters:
-        epsg_code (int): The EPSG code for spatial reference.
-        input_list (str): Path to the input file list.
-        output_vrt (str): Name of the output VRT file.
-
-    Returns:
-        None
-    """
+def build_vrt(epsg_code: int = 4326, input_list: str = "my_list.txt", output_vrt: str = "doq_index.vrt"):
+    """Builds a VRT file using GDAL."""
     cmd = [
         "gdalbuildvrt",
         "-allow_projection_difference",
         "-q",
-        #"-tap",
-        "-a_srs", f"EPSG:{str(epsg_code)}",
+        "-a_srs", f"EPSG:{epsg_code}",
         "-input_file_list", input_list,
         output_vrt
     ]
-    
     try:
         subprocess.run(cmd, check=True)
         print(f"✅ VRT file '{output_vrt}' created successfully.")
