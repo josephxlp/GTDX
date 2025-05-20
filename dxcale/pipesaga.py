@@ -32,16 +32,16 @@ opath =  os.path.join(outdir,f'{expname}_{name}.tif')
 overwrite= True#True  # only the 1st time 
 aux_files = True 
 clean = False
+model_out = 1# d:0
 #avge: bool = True, opte: bool = True,overwrite: bool = True
 
 ti = time.perf_counter()
 for dw_weighting in dw_weighting_list:
-    # add logic if file already exist : grab the logic that modifies the file
-    outpaths = gwrdownxcale(xpath, ypath, opath,geoid_fn, overwrite=overwrite,
-                            oaux=aux_files, epsg_code=4979, clean=clean,
-                            search_range=0, search_radius=10, 
-                            dw_weighting=dw_weighting, dw_idw_power=2.0, dw_bandwidth=1.0,
-                            logistic=0, model_out=0, grid_system=None)
+    gwrdownxcale(xpath, ypath, opath, geoid_fn, overwrite=False, oaux=False, 
+                 epsg_code=4979, clean=True, search_range=0, search_radius=10, 
+                 dw_weighting=dw_weighting, dw_idw_power=2.0, dw_bandwidth=1.0,
+                 logistic=0, model_out=0, grid_system=None, 
+                 fmin_fn_run=True, bcor_fn_run=False, fminbcor_fn_run=False)
 
 
 pfiles = glob(f"{outdir}/*fmin.tif")  #f'{expname}_{name}
