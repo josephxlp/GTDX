@@ -7,11 +7,10 @@ from ensembles import ensemble_prediction
 from uvars import edemH_fn_tls,geoid_fn_tls,gdemh_fn_tts,gdemH_fn_tls
 from uvars import ypath_tile,geoid_fn_tile,xpath_tile,out_dpath
 
-
 ti = time.perf_counter()
 start_time = datetime.now()
 
-mode = "dev"
+mode = "dep"#dev 
 name = 'GWRd_'
 
 if mode == "dep":
@@ -65,7 +64,9 @@ ensemble_prediction(ename:str, pred_paths: list[str], ref_path: str,
                         overwrite: bool = True)
 """#check if the files areary created@@@
 
-init_points, n_iter = 10,50 #10,90
+init_points, n_iter = 5,15 #10,90 #10,50
+
+
 rfile = xpath
 ename_fmin = f"{expname}_{name}_fmin"
 pfiles = fmin_fn_list
