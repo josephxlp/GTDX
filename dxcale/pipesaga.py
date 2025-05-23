@@ -11,7 +11,7 @@ from uvars import ypath_tile,geoid_fn_tile,xpath_tile,out_dpath
 ti = time.perf_counter()
 start_time = datetime.now()
 
-mode = "dep"#dev 
+mode = "dep"#dev #dep
 name = 'GWRd_'
 
 if mode == "dep":
